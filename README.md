@@ -220,6 +220,23 @@ caller authentication: protect it before exposing customer or order endpoints
 to untrusted users. Supabase RLS protects direct client access but does not
 authenticate requests to this server.
 
+### Optional purchase confirmation emails
+
+Create a [Resend](https://resend.com/) account and verify a sender domain.
+Configure both `RESEND_API_KEY` and `ORDER_EMAIL_FROM` (for example,
+`orders@your-verified-domain.example`) in **Render > Web Service > Environment**,
+then redeploy. Use the same variables in your Git-ignored `.env` for local
+development. Do not put the provider key in source or frontend code.
+
+After an order commits, the API sends a plain-text confirmation containing
+its order ID and total before returning the response. No email is sent for a
+rejected checkout. With both variables unset, emails are disabled and
+purchasing works as before; setting only one prevents the app from starting.
+Email delivery adds up to 10 seconds to the checkout response. A provider
+failure is logged without leaking credentials; the already-placed order still
+returns successfully, but no automatic retry is attempted. Use a database
+outbox and worker if guaranteed delivery is needed.
+
 ### Tests
 
 Run `python -m pytest -q`. Unit tests use FastAPI's TestClient and a mocked

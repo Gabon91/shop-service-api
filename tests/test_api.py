@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import Settings
 from app.dependencies import get_order_service
 from app.errors import OrderNotFound, ProductNotFound
 from app.factory import create_app
@@ -129,8 +131,8 @@ class FakeRepository:
         return self.get_order(order_id)
 
 
-def build_client():
-    app = create_app()
+def build_client(settings: Settings | None = None):
+    app = create_app(settings)
     fake_service = OrderService(FakeRepository())
     app.dependency_overrides[get_order_service] = lambda: fake_service
     return TestClient(app), fake_service
@@ -305,3 +307,56 @@ def test_openapi_contract_for_shop_endpoints():
     assert paths["/api/orders/{id}/status"]["patch"]["parameters"][0]["name"] == "id"
     assert paths["/api/orders"]["get"]["parameters"][0]["schema"]["format"] == "uuid"
     assert paths["/api/products"]["get"]["parameters"][0]["name"] == "search"
+
+
+def test_order_email_is_sent_before_checkout_response_and_only_after_success(monkeypatch):
+    calls = []
+    def send_now(order, **kwargs):
+        calls.append((order, kwargs))
+        assert str(order.id) in service._repository.orders
+
+    monkeypatch.setattr("app.factory.send_order_confirmation", send_now)
+    client, service = build_client(Settings(
+        resend_api_key="test-api-key",
+        order_email_from="orders@example.com",
+    ))
+    created = client.post("/api/orders", json=order_payload())
+    assert created.status_code == 201
+    assert len(calls) == 1
+    assert str(calls[0][0].id) == created.json()["id"]
+    assert calls[0][1] == {"api_key": "test-api-key", "sender": "orders@example.com"}
+
+    invalid = client.post("/api/orders", json={**order_payload(), "items": []})
+    missing = order_payload()
+    missing["items"][0]["product_id"] = str(uuid4())
+    unknown = client.post("/api/orders", json=missing)
+    assert invalid.status_code == 422
+    assert unknown.status_code == 404
+    assert len(calls) == 1
+
+
+def test_order_email_is_disabled_without_provider_configuration(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "app.factory.send_order_confirmation",
+        lambda order, **kwargs: calls.append(order),
+    )
+    client, _ = build_client(Settings())
+    assert client.post("/api/orders", json=order_payload()).status_code == 201
+    assert calls == []
+
+
+def test_provider_failure_does_not_make_saved_order_look_failed(monkeypatch, caplog):
+    def fail_send(url, **kwargs):
+        raise httpx.ReadTimeout("private provider error")
+
+    monkeypatch.setattr("app.email.httpx.post", fail_send)
+    client, _ = build_client(Settings(
+        resend_api_key="test-api-key",
+        order_email_from="orders@example.com",
+    ))
+    response = client.post("/api/orders", json=order_payload())
+    assert response.status_code == 201
+    assert len(client.get("/api/orders").json()) == 1
+    assert "Confirmation email delivery failed" in caplog.text
+    assert "private provider error" not in caplog.text

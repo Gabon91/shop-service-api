@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app import __version__
 from app.config import Settings
 from app.dependencies import RepositoryProvider, get_order_service, get_repository
+from app.email import send_order_confirmation
 from app.errors import ShopError
 from app.models import (
     CustomerRead,
@@ -26,6 +27,7 @@ from app.services import OrderService
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings if settings is not None else Settings.from_env()
+    settings.validate_order_email()
     provider = RepositoryProvider(settings)
 
     @asynccontextmanager
@@ -113,8 +115,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             422: {"description": "Invalid request, including duplicate product IDs"},
         },
     )
-    def create_order(payload: OrderCreate, service: OrderService = Depends(get_order_service)) -> OrderRead:
-        return service.create_order(payload)
+    def create_order(
+        payload: OrderCreate,
+        service: OrderService = Depends(get_order_service),
+    ) -> OrderRead:
+        order = service.create_order(payload)
+        if settings.resend_api_key:
+            send_order_confirmation(
+                order, api_key=settings.resend_api_key, sender=settings.order_email_from
+            )
+        return order
 
     @app.patch(
         "/api/orders/{id}/status", response_model=OrderRead, summary="Update order status",

@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
+from email_validator import EmailNotValidError, validate_email
 
 from app.errors import ConfigurationError
 
@@ -20,6 +21,8 @@ DEFAULT_ORIGINS = (
 class Settings:
     supabase_url: str = ""
     supabase_key: str = field(default="", repr=False)
+    resend_api_key: str = field(default="", repr=False)
+    order_email_from: str = ""
     cors_origins: tuple[str, ...] = DEFAULT_ORIGINS
 
     @classmethod
@@ -37,8 +40,21 @@ class Settings:
         return cls(
             supabase_url=(values.get("SUPABASE_URL") or "").strip(),
             supabase_key=(values.get("SUPABASE_KEY") or "").strip(),
+            resend_api_key=(values.get("RESEND_API_KEY") or "").strip(),
+            order_email_from=(values.get("ORDER_EMAIL_FROM") or "").strip(),
             cors_origins=tuple(origin.strip() for origin in origins.split(",") if origin.strip()),
         )
+
+    def validate_order_email(self) -> None:
+        if bool(self.resend_api_key) != bool(self.order_email_from):
+            raise ConfigurationError(
+                "RESEND_API_KEY and ORDER_EMAIL_FROM must both be configured for order emails"
+            )
+        if self.order_email_from:
+            try:
+                validate_email(self.order_email_from, check_deliverability=False)
+            except EmailNotValidError:
+                raise ConfigurationError("ORDER_EMAIL_FROM must be a valid email address") from None
 
     def validate_database(self) -> None:
         if not self.supabase_url or not self.supabase_key:
