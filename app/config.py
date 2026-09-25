@@ -9,7 +9,11 @@ from app.errors import ConfigurationError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_ORIGINS = ("http://localhost:5173", "http://localhost:3000")
+DEFAULT_ORIGINS = (
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://shop-ui-react.vercel.app",
+)
 
 
 @dataclass(frozen=True)

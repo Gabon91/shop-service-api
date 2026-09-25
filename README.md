@@ -83,12 +83,17 @@ Set these in your local `.env` or deployment platform:
 - `SUPABASE_URL`
 - `SUPABASE_KEY` (server-side service-role key)
 - `DATABASE_URL` (optional; direct PostgreSQL migration access only, not used by FastAPI)
-- `CORS_ORIGINS` (optional; comma-separated frontend origins, defaults to localhost ports 5173 and 3000)
+- `CORS_ORIGINS` (optional; comma-separated frontend origins, defaults to localhost ports
+  5173 and 3000 plus `https://shop-ui-react.vercel.app`)
 
 Copy `.env.example` to a local `.env` and fill in `SUPABASE_URL` and
 `SUPABASE_KEY`; `.env` is Git-ignored. The application reads `.env` automatically,
 or supply an alternate file using `ENV_FILE`. Environment variables override
 file values. Do not put the service-role key in a client or commit it.
+If Render already has a `CORS_ORIGINS` variable, it overrides the defaults.
+Set its value to `https://shop-ui-react.vercel.app` (without a trailing slash)
+or add localhost origins separated by commas to support local UI development.
+Use exact origins, not `*`; Vercel preview URLs must be added individually if needed.
 
 ### 3) Install and run
 
@@ -209,6 +214,8 @@ The workflow in `.github/workflows/ci.yml` runs `pytest` on every push and pull 
    URL and `SUPABASE_KEY` to the server-side secret key (`sb_secret_...` or
    legacy service-role key). Do not add `DATABASE_URL`; the app does not use it
    and the database migrations have already been applied. Do not commit keys.
+   If `CORS_ORIGINS` is set in Render, include
+   `https://shop-ui-react.vercel.app` in its comma-separated value.
 5. Set **Health Check Path** to `/livenss`, which checks Supabase access, and
    **Auto-Deploy** to **After CI Checks Pass**. Render will only deploy commits
    on `main` after the GitHub Actions `test` check succeeds. Its HTTP health

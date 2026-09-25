@@ -65,3 +65,31 @@ def test_health_routes_appear_in_openapi():
         paths = client.get("/openapi.json").json()["paths"]
     assert "/whoami" in paths
     assert "503" in paths["/livenss"]["get"]["responses"]
+
+
+def test_deployed_frontend_is_allowed_for_json_order_preflight_and_get():
+    origin = "https://shop-ui-react.vercel.app"
+    with TestClient(create_app(Settings())) as client:
+        preflight = client.options("/api/orders", headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        })
+        actual = client.get("/whoami", headers={"Origin": origin})
+
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == origin
+    assert "POST" in preflight.headers["access-control-allow-methods"]
+    assert actual.headers["access-control-allow-origin"] == origin
+    assert "access-control-allow-credentials" not in actual.headers
+
+
+def test_unknown_origin_is_not_allowed():
+    with TestClient(create_app(Settings())) as client:
+        response = client.options("/api/orders", headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        })
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
