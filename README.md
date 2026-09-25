@@ -117,11 +117,29 @@ python -m scripts.seed_products
 
 The script adds 24 generated, unofficial building-brick products to Supabase
 without a public product-write endpoint. Their prices and stock are
-deterministic demo values, not actual LEGO products or prices; image URLs are
-left blank. Stable UUIDs and insert-on-conflict-do-nothing mean reruns do not
-duplicate or overwrite products, including any edits to previously seeded
-rows. Other products are unaffected. This script runs manually; it is not part
-of deployment or CI/CD.
+deterministic demo values, not actual LEGO products or prices. The `image_url`
+fields use generated color-matched PNG placeholder images hosted by
+`placehold.co` (not official product photography); displaying them requires an
+internet connection to that service. Stable UUIDs and insert-on-conflict-do-
+nothing mean reruns do not duplicate products or overwrite catalog edits. On
+existing seed products, only a *blank* `image_url` is filled; custom images,
+prices, stock, and all unrelated products are preserved.
+
+After seeding products, create fictional dashboard data:
+
+```bash
+python -m scripts.seed_orders --dry-run
+python -m scripts.seed_orders
+```
+
+This creates four `@example.com` demo customers and eight orders through the
+same atomic checkout RPC as the public API. Statuses include Pending, Completed,
+and Cancelled. The script matches existing demo orders by customer email and
+their product/quantity lines; normal reruns skip them and do not reset any
+statuses you change for testing. It can resume missing orders, but should not
+be run concurrently: the schema has no order-level seed key for concurrent
+idempotency. Both seed scripts run manually; neither is part of deployment or
+CI/CD.
 
 ### Versioning
 

@@ -2,6 +2,7 @@
 
 import argparse
 import random
+from urllib.parse import quote_plus
 from uuid import NAMESPACE_URL, uuid5
 
 import httpx
@@ -22,6 +23,12 @@ PRODUCT_TYPES = (
     ("Wheel and Axle Kit", "Parts for building rolling models."),
 )
 COLORS = ("Red", "Blue", "Yellow", "Green")
+IMAGE_COLORS = {
+    "Red": ("c83838", "ffffff"),
+    "Blue": ("2860ae", "ffffff"),
+    "Yellow": ("f4cc36", "222222"),
+    "Green": ("26834f", "ffffff"),
+}
 
 
 def demo_products() -> list[dict[str, object]]:
@@ -30,13 +37,17 @@ def demo_products() -> list[dict[str, object]]:
     for product_type, description in PRODUCT_TYPES:
         for color in COLORS:
             name = f"{color} {product_type}"
+            background, foreground = IMAGE_COLORS[color]
             products.append({
                 "id": str(uuid5(NAMESPACE_URL, f"shop-service-api/demo-bricks/v1/{name}")),
                 "name": name,
                 "description": f"Unofficial demo product. {description}",
                 "price": rng.randint(399, 2999) / 100,
                 "stock": rng.randint(5, 40),
-                "image_url": None,
+                "image_url": (
+                    f"https://placehold.co/600x400/{background}/{foreground}.png"
+                    f"?text={quote_plus(name)}"
+                ),
             })
     return products
 
@@ -66,7 +77,20 @@ def main() -> None:
             result = client.table("products").upsert(
                 products, on_conflict="id", ignore_duplicates=True
             ).execute()
-            print(f"Added {len(result.data)} demo products; existing seed products were left unchanged.")
+            updated = 0
+            for product in products:
+                changed = (
+                    client.table("products")
+                    .update({"image_url": product["image_url"]})
+                    .eq("id", product["id"])
+                    .is_("image_url", "null")
+                    .execute()
+                )
+                updated += len(changed.data)
+            print(
+                f"Added {len(result.data)} demo products and filled {updated} blank image URLs; "
+                "existing catalog edits were preserved."
+            )
     except (ConfigurationError, SupabaseException, APIError, httpx.RequestError) as exc:
         raise SystemExit(f"Seeding failed ({type(exc).__name__}); no credentials printed.") from None
 
