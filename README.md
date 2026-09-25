@@ -117,13 +117,28 @@ python -m scripts.seed_products
 
 The script adds 24 generated, unofficial building-brick products to Supabase
 without a public product-write endpoint. Their prices and stock are
-deterministic demo values, not actual LEGO products or prices. The `image_url`
-fields use generated color-matched PNG placeholder images hosted by
-`placehold.co` (not official product photography); displaying them requires an
-internet connection to that service. Stable UUIDs and insert-on-conflict-do-
-nothing mean reruns do not duplicate products or overwrite catalog edits. On
-existing seed products, only a *blank* `image_url` is filled; custom images,
-prices, stock, and all unrelated products are preserved.
+deterministic demo values, not actual LEGO products or prices. `image_url`
+points to openly licensed photographs hosted by Wikimedia Commons, not to
+LEGO's website. Photos are illustrative: the exact part or color may differ
+from the product name. The source, creator, and license link are included in
+each seeded product's description; the app should display this credit with
+the image. Stable UUIDs and insert-on-conflict-do-nothing mean reruns do not
+duplicate products or overwrite prices or stock. On existing seed products,
+the seeder replaces only its original `placehold.co` image (or a blank URL)
+and original seed description; custom names, descriptions, images, prices,
+stock, and unrelated products are preserved. Viewing photos requires access
+to Wikimedia Commons.
+
+| Photo source | Creator | License |
+| --- | --- | --- |
+| [Light Green Lego Brick](https://commons.wikimedia.org/wiki/File:Light_Green_Lego_Brick.jpg) | Stilfehler | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) |
+| [Lego Round Brick Blue](https://commons.wikimedia.org/wiki/File:Lego_Round_Brick_Blue.jpg) | Stilfehler | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) |
+| [Lego Color Bricks](https://commons.wikimedia.org/wiki/File:Lego_Color_Bricks.jpg) | Alan Chia | [CC BY-SA 2.0](https://creativecommons.org/licenses/by-sa/2.0/) |
+| [Pile of lego blocks](https://commons.wikimedia.org/wiki/File:Pile_of_lego_blocks.jpg) | GTurnbull925 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| [Lego bricks](https://commons.wikimedia.org/wiki/File:Lego_bricks.jpg) | Benjamin D. Esham | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| [250 365 - Bricks](https://commons.wikimedia.org/wiki/File:250_365_-_Bricks_(4247555680).jpg) | Kenny Louie | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) |
+| [Lego Technic gears](https://commons.wikimedia.org/wiki/File:Lego_Technic_gears_red,blue,yellow_(42457828342).jpg) | Brickset | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) |
+| [Lego WeDo 2.0 Bricks](https://commons.wikimedia.org/wiki/File:Lego_WeDo_2.0_Bricks.jpg) | Klaus-Dieter Keller | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 
 After seeding products, create fictional dashboard data:
 

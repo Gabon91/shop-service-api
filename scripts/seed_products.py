@@ -12,6 +12,7 @@ from supabase._sync.client import SupabaseException
 
 from app.config import Settings
 from app.errors import ConfigurationError
+from scripts.photo_sources import PHOTOS, PHOTO_KEYS
 
 
 PRODUCT_TYPES = (
@@ -23,7 +24,7 @@ PRODUCT_TYPES = (
     ("Wheel and Axle Kit", "Parts for building rolling models."),
 )
 COLORS = ("Red", "Blue", "Yellow", "Green")
-IMAGE_COLORS = {
+PLACEHOLDER_COLORS = {
     "Red": ("c83838", "ffffff"),
     "Blue": ("2860ae", "ffffff"),
     "Yellow": ("f4cc36", "222222"),
@@ -31,25 +32,48 @@ IMAGE_COLORS = {
 }
 
 
+def old_placeholder(name: str, color: str) -> str:
+    background, foreground = PLACEHOLDER_COLORS[color]
+    return (
+        f"https://placehold.co/600x400/{background}/{foreground}.png"
+        f"?text={quote_plus(name)}"
+    )
+
+
+def original_description(description: str) -> str:
+    return f"Unofficial demo product. {description}"
+
+
 def demo_products() -> list[dict[str, object]]:
     rng = random.Random(20260925)
     products: list[dict[str, object]] = []
     for product_type, description in PRODUCT_TYPES:
-        for color in COLORS:
+        for color_index, color in enumerate(COLORS):
             name = f"{color} {product_type}"
-            background, foreground = IMAGE_COLORS[color]
+            photo = PHOTOS[PHOTO_KEYS[product_type][color_index]]
             products.append({
                 "id": str(uuid5(NAMESPACE_URL, f"shop-service-api/demo-bricks/v1/{name}")),
                 "name": name,
-                "description": f"Unofficial demo product. {description}",
+                "description": f"{original_description(description)} {photo.credit()}",
                 "price": rng.randint(399, 2999) / 100,
                 "stock": rng.randint(5, 40),
-                "image_url": (
-                    f"https://placehold.co/600x400/{background}/{foreground}.png"
-                    f"?text={quote_plus(name)}"
-                ),
+                "image_url": photo.url,
             })
     return products
+
+
+def previous_seed_description(name: str) -> str:
+    product_type = name.split(" ", 1)[1]
+    return original_description(dict(PRODUCT_TYPES)[product_type])
+
+
+def can_replace_seed_image(current: dict[str, object], product: dict[str, object]) -> bool:
+    name = str(product["name"])
+    return (
+        current["name"] == name
+        and current["description"] == previous_seed_description(name)
+        and current["image_url"] in (None, old_placeholder(name, name.split(" ", 1)[0]))
+    )
 
 
 def main() -> None:
@@ -77,18 +101,32 @@ def main() -> None:
             result = client.table("products").upsert(
                 products, on_conflict="id", ignore_duplicates=True
             ).execute()
+            current_rows = client.table("products").select(
+                "id,name,description,image_url"
+            ).in_("id", [product["id"] for product in products]).execute().data
+            existing = {row["id"]: row for row in current_rows}
             updated = 0
             for product in products:
-                changed = (
+                current = existing.get(product["id"])
+                if current is None or not can_replace_seed_image(current, product):
+                    continue
+                query = (
                     client.table("products")
-                    .update({"image_url": product["image_url"]})
+                    .update({"image_url": product["image_url"], "description": product["description"]})
                     .eq("id", product["id"])
-                    .is_("image_url", "null")
-                    .execute()
+                    .eq("name", product["name"])
+                    .eq("description", current["description"])
+                )
+                if current["image_url"] is None:
+                    query = query.is_("image_url", "null")
+                else:
+                    query = query.eq("image_url", current["image_url"])
+                changed = (
+                    query.execute()
                 )
                 updated += len(changed.data)
             print(
-                f"Added {len(result.data)} demo products and filled {updated} blank image URLs; "
+                f"Added {len(result.data)} demo products and replaced {updated} seed-owned images; "
                 "existing catalog edits were preserved."
             )
     except (ConfigurationError, SupabaseException, APIError, httpx.RequestError) as exc:
