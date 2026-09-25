@@ -79,7 +79,13 @@ class SupabaseShopRepository:
         def fetch(offset: int) -> APIResponse:
             query = self._client.table("products").select("*", count="exact")
             if search is not None:
-                query = query.ilike("name", f"%{search}%")
+                literal = (
+                    search.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+                    .replace("*", "\\*")
+                )
+                query = query.ilike("name", f"%{literal}%")
             return query.order("name").order("id").range(offset, offset + PAGE_SIZE - 1).execute()
 
         return self._list_all(fetch, ProductRead)

@@ -145,7 +145,8 @@ installation dependency of the package.
 - `POST /api/orders`
 - `PATCH /api/orders/{id}/status`
 
-Products search is a case-insensitive name substring. Orders include their
+Products search is a case-insensitive, literal name substring (including
+characters such as `%` and `_`). Orders include their
 customer and line items; omitting `customer_id` returns all orders. The
 repository pages through Supabase results rather than stopping at its default
 per-query limit.
@@ -180,6 +181,15 @@ Update status using `PATCH /api/orders/{id}/status` with
 caller authentication: protect it before exposing customer or order endpoints
 to untrusted users. Supabase RLS protects direct client access but does not
 authenticate requests to this server.
+
+### Tests
+
+Run `python -m pytest -q`. Unit tests use FastAPI's TestClient and a mocked
+Supabase HTTP transport; no real credentials or running database are required.
+The checkout transaction's SQL assertions are in
+`tests\sql\test_atomic_checkout.sql`; run those only in a **disposable**
+PostgreSQL database with migrations 001 and 002 applied. That script opens a
+transaction, tests grants and failure rollback, then rolls back its fixtures.
 
 ## Stage 2: CICD
 

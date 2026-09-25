@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.dependencies import get_order_service
+from app.errors import OrderNotFound, ProductNotFound
 from app.factory import create_app
 from app.models import CustomerRead, OrderCreate, OrderRead, OrderSummaryRead, ProductRead
 from app.services import OrderService
@@ -62,7 +64,9 @@ class FakeRepository:
             )
             self.customers[email] = customer
         else:
-            customer = customer.model_copy(update={"name": name, "phone": phone})
+            customer = customer.model_copy(update={
+                "name": name, "phone": phone if phone is not None else customer.phone
+            })
             self.customers[email] = customer
         return customer
 
@@ -71,12 +75,14 @@ class FakeRepository:
         return [product for product in self.products if product.id in wanted]
 
     def create_order(self, payload: OrderCreate):
-        customer = self.upsert_customer(
-            payload.customer_name, payload.customer_email, payload.customer_phone
-        )
         products_by_id = {product.id: product for product in self.get_products_by_ids(
             [item.product_id for item in payload.items]
         )}
+        if any(item.product_id not in products_by_id for item in payload.items):
+            raise ProductNotFound()
+        customer = self.upsert_customer(
+            payload.customer_name, payload.customer_email, payload.customer_phone
+        )
         total_amount = sum(
             item.quantity * products_by_id[item.product_id].price for item in payload.items
         )
@@ -116,6 +122,8 @@ class FakeRepository:
         )
 
     def update_order_status(self, order_id: UUID, status: str):
+        if str(order_id) not in self.orders:
+            raise OrderNotFound()
         order = self.orders[str(order_id)].model_copy(update={"status": status})
         self.orders[str(order_id)] = order
         return self.get_order(order_id)
@@ -174,3 +182,126 @@ def test_update_order_status():
 
     assert response.status_code == 200
     assert response.json()["status"] == "Completed"
+
+
+def order_payload(name="Ada", email="ada@example.com", phone=None):
+    return {
+        "customer_name": name,
+        "customer_email": email,
+        "customer_phone": phone,
+        "items": [{"product_id": "11111111-1111-1111-1111-111111111111", "quantity": 2}],
+    }
+
+
+def test_products_unfiltered_and_empty_search():
+    client, _ = build_client()
+    assert len(client.get("/api/products").json()) == 2
+    assert len(client.get("/api/products", params={"search": ""}).json()) == 2
+
+
+def test_customers_orders_and_customer_filter():
+    client, _ = build_client()
+    assert client.get("/api/customers").json() == []
+    assert client.get("/api/orders").json() == []
+    ada = client.post("/api/orders", json=order_payload()).json()
+    grace = client.post(
+        "/api/orders", json=order_payload("Grace", "grace@example.com")
+    ).json()
+    customers = client.get("/api/customers")
+    assert customers.status_code == 200
+    assert {c["email"] for c in customers.json()} == {
+        "ada@example.com", "grace@example.com",
+    }
+    assert len(client.get("/api/orders").json()) == 2
+    ada_orders = client.get("/api/orders", params={"customer_id": ada["customer_id"]})
+    assert ada_orders.status_code == 200
+    assert [order["id"] for order in ada_orders.json()] == [ada["id"]]
+    assert ada_orders.json()[0]["customer"]["email"] == "ada@example.com"
+    assert client.get(
+        "/api/orders", params={"customer_id": str(uuid4())}
+    ).json() == []
+    assert grace["customer_id"] != ada["customer_id"]
+
+
+def test_checkout_reuses_customer_and_preserves_phone_when_omitted():
+    client, _ = build_client()
+    first = client.post(
+        "/api/orders", json=order_payload(phone="+1-555-0101")
+    ).json()
+    second = client.post(
+        "/api/orders", json=order_payload("Ada Updated")
+    ).json()
+    assert second["customer_id"] == first["customer_id"]
+    assert second["id"] != first["id"]
+    assert second["customer"]["name"] == "Ada Updated"
+    assert second["customer"]["phone"] == "+1-555-0101"
+    assert len(client.get("/api/customers").json()) == 1
+
+
+@pytest.mark.parametrize("change", [
+    {"customer_name": " \t "},
+    {"customer_email": "not-email"},
+    {"items": []},
+    {"items": [{"product_id": "not-a-uuid", "quantity": 1}]},
+    {"items": [{"product_id": "11111111-1111-1111-1111-111111111111", "quantity": 0}]},
+    {"items": [{"product_id": "11111111-1111-1111-1111-111111111111", "quantity": True}]},
+    {"items": [{"product_id": "11111111-1111-1111-1111-111111111111", "quantity": 1.0}]},
+    {"items": [{"product_id": "11111111-1111-1111-1111-111111111111", "quantity": 2147483648}]},
+    {"items": [
+        {"product_id": "11111111-1111-1111-1111-111111111111", "quantity": 1},
+        {"product_id": "11111111-1111-1111-1111-111111111111", "quantity": 2},
+    ]},
+    {"total_amount": 0},
+])
+def test_bad_checkout_does_not_create_records(change):
+    client, _ = build_client()
+    assert client.post("/api/orders", json={**order_payload(), **change}).status_code == 422
+    assert client.get("/api/orders").json() == []
+    assert client.get("/api/customers").json() == []
+
+
+def test_missing_product_is_404_without_customer_creation():
+    client, _ = build_client()
+    payload = order_payload()
+    payload["items"][0]["product_id"] = str(uuid4())
+    response = client.post("/api/orders", json=payload)
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Product not found"}
+    assert client.get("/api/customers").json() == []
+
+
+def test_status_errors_and_invalid_customer_filter():
+    client, _ = build_client()
+    assert client.patch(
+        f"/api/orders/{uuid4()}/status", json={"status": "Completed"}
+    ).status_code == 404
+    assert client.patch(
+        f"/api/orders/{uuid4()}/status", json={"status": "Shipped"}
+    ).status_code == 422
+    assert client.patch(
+        "/api/orders/not-uuid/status", json={"status": "Completed"}
+    ).status_code == 422
+    assert client.get("/api/orders?customer_id=not-uuid").status_code == 422
+
+
+def test_openapi_contract_for_shop_endpoints():
+    client, _ = build_client()
+    schema = client.get("/openapi.json").json()
+    assert schema["openapi"] == "3.0.3"
+    assert schema["info"]["title"] == "Mini E-Commerce Store API"
+    paths = schema["paths"]
+    for path, method, summary, code, description in [
+        ("/api/products", "get", "Get all products", "200", "List of products"),
+        ("/api/customers", "get", "Get all customers (Business side)", "200",
+         "List of customers"),
+        ("/api/orders", "get", "Get orders", "200", "List of orders"),
+        ("/api/orders", "post", "Create a new order", "201", "Order created"),
+        ("/api/orders/{id}/status", "patch", "Update order status", "200",
+         "Status updated"),
+    ]:
+        operation = paths[path][method]
+        assert operation["summary"] == summary
+        assert operation["responses"][code]["description"] == description
+    assert paths["/api/orders/{id}/status"]["patch"]["parameters"][0]["name"] == "id"
+    assert paths["/api/orders"]["get"]["parameters"][0]["schema"]["format"] == "uuid"
+    assert paths["/api/products"]["get"]["parameters"][0]["name"] == "search"
