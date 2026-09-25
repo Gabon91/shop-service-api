@@ -101,6 +101,23 @@ Visit `http://localhost:8000/docs` for interactive API documentation.
 Without `SUPABASE_KEY`, `/whoami` and `/health` work, but database-backed
 endpoints (including `/livenss`) return `503`.
 
+### Demo catalog
+
+After configuring `SUPABASE_URL` and the server-side `SUPABASE_KEY`, run:
+
+```bash
+python -m scripts.seed_products --dry-run
+python -m scripts.seed_products
+```
+
+The script adds 24 generated, unofficial building-brick products to Supabase
+without a public product-write endpoint. Their prices and stock are
+deterministic demo values, not actual LEGO products or prices; image URLs are
+left blank. Stable UUIDs and insert-on-conflict-do-nothing mean reruns do not
+duplicate or overwrite products, including any edits to previously seeded
+rows. Other products are unaffected. This script runs manually; it is not part
+of deployment or CI/CD.
+
 ### Versioning
 
 `setup.py` provides installable package metadata. `app\__init__.py` contains the
@@ -172,13 +189,33 @@ The workflow in `.github/workflows/ci.yml` runs `pytest` on every push and pull 
 ### Deployment
 
 #### Render
-1. Create a new Web Service.
-2. Point it at this repository.
-3. Use the build command: `pip install -r requirements.txt`
-4. Use the start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-5. Add environment variables:
-   - `SUPABASE_URL`
-   - `SUPABASE_KEY`
+1. In Render, select **New > Web Service**, connect GitHub and choose
+   `Gabon91/shop-service-api`, branch `main`. Use the free instance if available.
+   Leave **Root Directory** empty; choose the **Python** runtime. The
+   `.python-version` file pins Python 3.11, matching GitHub Actions.
+2. Set **Build Command** to `pip install -r requirements.txt`.
+3. Set **Start Command** to `uvicorn main:app --host 0.0.0.0 --port $PORT`.
+4. Under **Environment**, set `SUPABASE_URL` to your Supabase project HTTPS
+   URL and `SUPABASE_KEY` to the server-side secret key (`sb_secret_...` or
+   legacy service-role key). Do not add `DATABASE_URL`; the app does not use it
+   and the database migrations have already been applied. Do not commit keys.
+5. Set **Health Check Path** to `/livenss`, which checks Supabase access, and
+   **Auto-Deploy** to **After CI Checks Pass**. Render will only deploy commits
+   on `main` after the GitHub Actions `test` check succeeds. Its HTTP health
+   checks require a successful response within five seconds; if Supabase is
+   slow or unavailable, deployment can be blocked. `/health` checks the
+   process only if you intentionally prefer that behavior instead.
+6. Deploy. The current service base URL is
+   `https://shop-service-api-7mhs.onrender.com`; open `/whoami`,
+   `/livenss`, `/api/products`, and `/docs` under that URL to verify it.
+   The products endpoint should list the 24 demo products seeded in Supabase.
+   On a free instance the first request after inactivity can be slow.
+
+This is dashboard-managed deployment: **do not create a separate Render
+Blueprint** for the same service. The GitHub Actions workflow runs tests but
+does not hold Render credentials or invoke a deploy hook. SQL migrations are
+not executed automatically on app deploy; apply new migrations separately
+before deploying code that depends on them.
 
 #### Railway / Fly.io
 Use the same start command and environment variables. Ensure the service listens on `0.0.0.0` and the platform-provided port.
