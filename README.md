@@ -225,7 +225,9 @@ authenticate requests to this server.
 Enable 2-step verification on your Google account and create a
 [Google app password](https://support.google.com/mail/answer/185833).
 Set `GMAIL_ADDRESS` to that account's email and `GMAIL_APP_PASSWORD` to its
-app password (without spaces) in **Render > Web Service > Environment**, then
+16-character app password in **Render > Web Service > Environment**. You can
+paste it as Google displays it in groups of four: ASCII display spaces are
+removed before SMTP login. Then
 redeploy. Remove the old `RESEND_API_KEY` and `ORDER_EMAIL_FROM` variables.
 Use the same Gmail variables in your Git-ignored `.env` for local development;
 never put the app password in source or frontend code. Gmail SMTP uses

@@ -25,6 +25,11 @@ class Settings:
     gmail_app_password: str = field(default="", repr=False)
     cors_origins: tuple[str, ...] = DEFAULT_ORIGINS
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "gmail_app_password", self.gmail_app_password.replace(" ", "")
+        )
+
     @classmethod
     def from_env(cls, env_file: str | Path | None = None) -> "Settings":
         selected = env_file if env_file is not None else os.environ.get("ENV_FILE")
@@ -56,7 +61,7 @@ class Settings:
             except EmailNotValidError:
                 raise ConfigurationError("GMAIL_ADDRESS must be a valid email address") from None
             if any(character.isspace() for character in self.gmail_app_password):
-                raise ConfigurationError("GMAIL_APP_PASSWORD must not contain spaces") from None
+                raise ConfigurationError("GMAIL_APP_PASSWORD contains unsupported whitespace") from None
 
     def validate_database(self) -> None:
         if not self.supabase_url or not self.supabase_key:

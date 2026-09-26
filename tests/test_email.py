@@ -93,7 +93,25 @@ def test_email_settings_require_complete_valid_configuration():
         Settings(gmail_app_password="only-password"),
         Settings(gmail_address="orders@gmail.com"),
         Settings(gmail_address="bad-address", gmail_app_password="password"),
-        Settings(gmail_address="orders@gmail.com", gmail_app_password="has spaces"),
+        Settings(gmail_address="orders@gmail.com", gmail_app_password="has\twhitespace"),
     ):
         with pytest.raises(ConfigurationError):
             create_app(settings)
+
+
+def test_grouped_google_app_password_is_normalized_before_login(monkeypatch):
+    smtp = MagicMock()
+    monkeypatch.setattr("app.email.smtplib.SMTP", smtp)
+    settings = Settings(
+        gmail_address="orders@gmail.com",
+        gmail_app_password="abcd efgh ijkl mnop",
+    )
+    create_app(settings)
+    send_order_confirmation(
+        sample_order(),
+        gmail_address=settings.gmail_address,
+        app_password=settings.gmail_app_password,
+    )
+    smtp.return_value.__enter__.return_value.login.assert_called_once_with(
+        "orders@gmail.com", "abcdefghijklmnop"
+    )
