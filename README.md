@@ -222,25 +222,46 @@ authenticate requests to this server.
 
 ### Optional purchase confirmation emails
 
-Enable 2-step verification on your Google account and create a
-[Google app password](https://support.google.com/mail/answer/185833).
-Set `GMAIL_ADDRESS` to that account's email and `GMAIL_APP_PASSWORD` to its
-16-character app password in **Render > Web Service > Environment**. You can
-paste it as Google displays it in groups of four: ASCII display spaces are
-removed before SMTP login. Then
-redeploy. Remove the old `RESEND_API_KEY` and `ORDER_EMAIL_FROM` variables.
-Use the same Gmail variables in your Git-ignored `.env` for local development;
-never put the app password in source or frontend code. Gmail SMTP uses
-`smtp.gmail.com:587` with STARTTLS and sends from the authenticated account.
+Render Free blocks outbound SMTP ports, so confirmations use the **Gmail API
+over HTTPS**, not SMTP or a Google app password.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create/select
+   a project and enable the **Gmail API**. Set up **Google Auth Platform** and
+   create an OAuth 2.0 client of type **Web application**. Under **Authorized
+   redirect URIs** add exactly `http://127.0.0.1:8765/` (including the
+   trailing slash). If the app is in *External / Testing*, add the Gmail
+   account as a **test user**.
+2. In the local Git-ignored `.env`, set `GMAIL_ADDRESS` to the sending Gmail
+   account, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to the values from
+   that Web OAuth client. The old `GMAIL_APP_PASSWORD` is unused; do not
+   paste OAuth credentials or tokens in chat or Git.
+3. Run `python -m scripts.authorize_gmail` locally. Sign in with that same
+   Gmail account in the browser and approve **gmail.send** plus identity
+   verification. The script checks that the authorized account matches
+   `GMAIL_ADDRESS` and saves `GOOGLE_REFRESH_TOKEN` only to local `.env`.
+4. Run `python -m scripts.check_gmail` locally. It sends a test confirmation
+   to the same Gmail account **without placing a database order**. Confirm
+   receipt in Inbox or Sent. Only after that succeeds, set all four
+   `GMAIL_ADDRESS`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and
+   `GOOGLE_REFRESH_TOKEN` values in **Render > Web Service > Environment**
+   and redeploy. Remove `GMAIL_APP_PASSWORD`, `RESEND_API_KEY`, and
+   `ORDER_EMAIL_FROM` from Render. If only some Gmail API variables are set,
+   startup fails explicitly; leave all four unset to disable email.
+
+Google OAuth refresh tokens for external apps in **Testing** generally expire
+after seven days; after that, re-authorize and update Render's refresh token.
+Publishing an OAuth app with sensitive Gmail scopes can require Google's
+verification. Gmail's personal-account sending and abuse limits still apply.
+Treat the OAuth client secret and refresh token as passwords. Only the
+authorized account can send; customers do not sign in with Google.
 
 After an order commits, the API sends a plain-text confirmation containing
 its order ID and total before returning the response. No email is sent for a
-rejected checkout. With both variables unset, emails are disabled and
-purchasing works as before; setting only one prevents the app from starting.
-SMTP delivery delays the checkout response and can exceed the 10-second
-connection timeout. A provider
-failure is logged without leaking credentials; the already-placed order still
-returns successfully, but no automatic retry is attempted. Use a database
+rejected checkout. With all four Gmail API variables unset, emails are disabled and
+purchasing works as before. The Gmail API call is synchronous, adding latency
+to checkout. Failure to refresh a token or send a message is logged by stage
+and HTTP status without logging credentials or customer email; the saved order
+still returns successfully. No automatic retry is attempted. Use a database
 outbox and worker if guaranteed delivery is needed.
 
 ### Tests

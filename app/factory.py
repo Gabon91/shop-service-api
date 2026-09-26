@@ -124,7 +124,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             send_order_confirmation(
                 order,
                 gmail_address=settings.gmail_address,
-                app_password=settings.gmail_app_password,
+                client_id=settings.google_client_id,
+                client_secret=settings.google_client_secret,
+                refresh_token=settings.google_refresh_token,
             )
         return order
 

@@ -22,13 +22,10 @@ class Settings:
     supabase_url: str = ""
     supabase_key: str = field(default="", repr=False)
     gmail_address: str = ""
-    gmail_app_password: str = field(default="", repr=False)
+    google_client_id: str = ""
+    google_client_secret: str = field(default="", repr=False)
+    google_refresh_token: str = field(default="", repr=False)
     cors_origins: tuple[str, ...] = DEFAULT_ORIGINS
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "gmail_app_password", self.gmail_app_password.replace(" ", "")
-        )
 
     @classmethod
     def from_env(cls, env_file: str | Path | None = None) -> "Settings":
@@ -46,22 +43,29 @@ class Settings:
             supabase_url=(values.get("SUPABASE_URL") or "").strip(),
             supabase_key=(values.get("SUPABASE_KEY") or "").strip(),
             gmail_address=(values.get("GMAIL_ADDRESS") or "").strip(),
-            gmail_app_password=(values.get("GMAIL_APP_PASSWORD") or "").strip(),
+            google_client_id=(values.get("GOOGLE_CLIENT_ID") or "").strip(),
+            google_client_secret=(values.get("GOOGLE_CLIENT_SECRET") or "").strip(),
+            google_refresh_token=(values.get("GOOGLE_REFRESH_TOKEN") or "").strip(),
             cors_origins=tuple(origin.strip() for origin in origins.split(",") if origin.strip()),
         )
 
     def validate_order_email(self) -> None:
-        if bool(self.gmail_address) != bool(self.gmail_app_password):
+        configured = (
+            self.gmail_address,
+            self.google_client_id,
+            self.google_client_secret,
+            self.google_refresh_token,
+        )
+        if any(configured) and not all(configured):
             raise ConfigurationError(
-                "GMAIL_ADDRESS and GMAIL_APP_PASSWORD must both be configured for order emails"
+                "GMAIL_ADDRESS, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and "
+                "GOOGLE_REFRESH_TOKEN must all be configured for order emails"
             )
         if self.gmail_address:
             try:
                 validate_email(self.gmail_address, check_deliverability=False)
             except EmailNotValidError:
                 raise ConfigurationError("GMAIL_ADDRESS must be a valid email address") from None
-            if any(character.isspace() for character in self.gmail_app_password):
-                raise ConfigurationError("GMAIL_APP_PASSWORD contains unsupported whitespace") from None
 
     def validate_database(self) -> None:
         if not self.supabase_url or not self.supabase_key:
