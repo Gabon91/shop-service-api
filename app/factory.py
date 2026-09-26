@@ -120,9 +120,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service: OrderService = Depends(get_order_service),
     ) -> OrderRead:
         order = service.create_order(payload)
-        if settings.resend_api_key:
+        if settings.gmail_address:
             send_order_confirmation(
-                order, api_key=settings.resend_api_key, sender=settings.order_email_from
+                order,
+                gmail_address=settings.gmail_address,
+                app_password=settings.gmail_app_password,
             )
         return order
 

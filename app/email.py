@@ -1,29 +1,30 @@
 import logging
-
-import httpx
+import smtplib
+import ssl
+from email.message import EmailMessage
 
 from app.models import OrderRead
 
 
 logger = logging.getLogger(__name__)
-RESEND_URL = "https://api.resend.com/emails"
 
 
-def send_order_confirmation(order: OrderRead, *, api_key: str, sender: str) -> None:
+def send_order_confirmation(
+    order: OrderRead, *, gmail_address: str, app_password: str
+) -> None:
+    message = EmailMessage()
+    message["From"] = gmail_address
+    message["To"] = str(order.customer.email)
+    message["Subject"] = "Your order is confirmed"
+    message.set_content(f"Order {order.id} was placed. Total: {order.total_amount:.2f}")
     try:
-        response = httpx.post(
-            RESEND_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "from": sender,
-                "to": [str(order.customer.email)],
-                "subject": "Your order is confirmed",
-                "text": f"Order {order.id} was placed. Total: {order.total_amount:.2f}",
-            },
-            timeout=10.0,
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as smtp:
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.login(gmail_address, app_password)
+            refused = smtp.send_message(message)
+            if refused:
+                raise smtplib.SMTPRecipientsRefused(refused)
+    except (smtplib.SMTPException, OSError) as exc:
         logger.error(
             "Confirmation email delivery failed for order %s (%s)",
             order.id,

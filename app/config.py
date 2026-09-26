@@ -21,8 +21,8 @@ DEFAULT_ORIGINS = (
 class Settings:
     supabase_url: str = ""
     supabase_key: str = field(default="", repr=False)
-    resend_api_key: str = field(default="", repr=False)
-    order_email_from: str = ""
+    gmail_address: str = ""
+    gmail_app_password: str = field(default="", repr=False)
     cors_origins: tuple[str, ...] = DEFAULT_ORIGINS
 
     @classmethod
@@ -40,21 +40,23 @@ class Settings:
         return cls(
             supabase_url=(values.get("SUPABASE_URL") or "").strip(),
             supabase_key=(values.get("SUPABASE_KEY") or "").strip(),
-            resend_api_key=(values.get("RESEND_API_KEY") or "").strip(),
-            order_email_from=(values.get("ORDER_EMAIL_FROM") or "").strip(),
+            gmail_address=(values.get("GMAIL_ADDRESS") or "").strip(),
+            gmail_app_password=(values.get("GMAIL_APP_PASSWORD") or "").strip(),
             cors_origins=tuple(origin.strip() for origin in origins.split(",") if origin.strip()),
         )
 
     def validate_order_email(self) -> None:
-        if bool(self.resend_api_key) != bool(self.order_email_from):
+        if bool(self.gmail_address) != bool(self.gmail_app_password):
             raise ConfigurationError(
-                "RESEND_API_KEY and ORDER_EMAIL_FROM must both be configured for order emails"
+                "GMAIL_ADDRESS and GMAIL_APP_PASSWORD must both be configured for order emails"
             )
-        if self.order_email_from:
+        if self.gmail_address:
             try:
-                validate_email(self.order_email_from, check_deliverability=False)
+                validate_email(self.gmail_address, check_deliverability=False)
             except EmailNotValidError:
-                raise ConfigurationError("ORDER_EMAIL_FROM must be a valid email address") from None
+                raise ConfigurationError("GMAIL_ADDRESS must be a valid email address") from None
+            if any(character.isspace() for character in self.gmail_app_password):
+                raise ConfigurationError("GMAIL_APP_PASSWORD must not contain spaces") from None
 
     def validate_database(self) -> None:
         if not self.supabase_url or not self.supabase_key:

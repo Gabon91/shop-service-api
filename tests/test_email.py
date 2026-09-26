@@ -1,10 +1,11 @@
 import logging
+import smtplib
+from unittest.mock import MagicMock
 
-import httpx
 import pytest
 
 from app.config import Settings
-from app.email import RESEND_URL, send_order_confirmation
+from app.email import send_order_confirmation
 from app.errors import ConfigurationError
 from app.factory import create_app
 from app.models import OrderRead
@@ -34,58 +35,65 @@ def sample_order() -> OrderRead:
     })
 
 
-def test_order_email_uses_resend_with_customer_and_order_summary(monkeypatch):
-    calls = []
-
-    def fake_post(url, **kwargs):
-        calls.append((url, kwargs))
-        return httpx.Response(200, json={"id": "email-123"}, request=httpx.Request("POST", url))
-
-    monkeypatch.setattr("app.email.httpx.post", fake_post)
+def test_order_email_uses_gmail_starttls(monkeypatch):
+    smtp = MagicMock()
+    monkeypatch.setattr("app.email.smtplib.SMTP", smtp)
+    session = smtp.return_value.__enter__.return_value
     send_order_confirmation(
-        sample_order(), api_key="test-api-key", sender="orders@example.com"
+        sample_order(), gmail_address="orders@gmail.com", app_password="test-app-password"
     )
 
-    assert len(calls) == 1
-    url, kwargs = calls[0]
-    assert url == RESEND_URL
-    assert kwargs["headers"]["Authorization"] == "Bearer test-api-key"
-    assert kwargs["json"]["from"] == "orders@example.com"
-    assert kwargs["json"]["to"] == ["ada@example.com"]
-    assert "25.00" in kwargs["json"]["text"]
-    assert "33333333-3333-3333-3333-333333333333" in kwargs["json"]["text"]
-    assert kwargs["timeout"] == 10.0
+    smtp.assert_called_once_with("smtp.gmail.com", 587, timeout=10)
+    session.starttls.assert_called_once()
+    session.login.assert_called_once_with("orders@gmail.com", "test-app-password")
+    message = session.send_message.call_args.args[0]
+    assert message["From"] == "orders@gmail.com"
+    assert message["To"] == "ada@example.com"
+    assert "25.00" in message.get_content()
+    assert "33333333-3333-3333-3333-333333333333" in message.get_content()
 
 
 @pytest.mark.parametrize("error", [
-    httpx.Response(403, json={"message": "private provider error"},
-                   request=httpx.Request("POST", RESEND_URL)),
-    httpx.ReadTimeout("private provider error"),
+    smtplib.SMTPAuthenticationError(535, b"private auth details"),
+    TimeoutError("private connection details"),
 ])
-def test_email_failure_is_logged_without_exposing_keys_or_failing_order(
-    monkeypatch, caplog, error
-):
-    def fake_post(url, **kwargs):
-        if isinstance(error, Exception):
-            raise error
-        return error
+def test_email_failure_is_logged_without_exposing_secrets(monkeypatch, caplog, error):
+    def fail_connect(*args, **kwargs):
+        raise error
 
-    monkeypatch.setattr("app.email.httpx.post", fake_post)
+    monkeypatch.setattr("app.email.smtplib.SMTP", fail_connect)
     with caplog.at_level(logging.ERROR):
         send_order_confirmation(
-            sample_order(), api_key="private-api-key", sender="orders@example.com"
+            sample_order(), gmail_address="orders@gmail.com", app_password="private-password"
         )
     assert "Confirmation email delivery failed" in caplog.text
-    assert "private-api-key" not in caplog.text
-    assert "private provider error" not in caplog.text
+    assert "private-password" not in caplog.text
+    assert "private auth details" not in caplog.text
+    assert "private connection details" not in caplog.text
     assert "ada@example.com" not in caplog.text
 
 
-def test_email_settings_require_a_complete_valid_configuration():
+def test_refused_recipient_is_reported_without_exposing_address(monkeypatch, caplog):
+    smtp = MagicMock()
+    smtp.return_value.__enter__.return_value.send_message.return_value = {
+        "ada@example.com": (550, b"private recipient details"),
+    }
+    monkeypatch.setattr("app.email.smtplib.SMTP", smtp)
+    with caplog.at_level(logging.ERROR):
+        send_order_confirmation(
+            sample_order(), gmail_address="orders@gmail.com", app_password="private-password"
+        )
+    assert "Confirmation email delivery failed" in caplog.text
+    assert "ada@example.com" not in caplog.text
+    assert "private recipient details" not in caplog.text
+
+
+def test_email_settings_require_complete_valid_configuration():
     for settings in (
-        Settings(resend_api_key="only-key"),
-        Settings(order_email_from="orders@example.com"),
-        Settings(resend_api_key="key", order_email_from="bad-address"),
+        Settings(gmail_app_password="only-password"),
+        Settings(gmail_address="orders@gmail.com"),
+        Settings(gmail_address="bad-address", gmail_app_password="password"),
+        Settings(gmail_address="orders@gmail.com", gmail_app_password="has spaces"),
     ):
         with pytest.raises(ConfigurationError):
             create_app(settings)

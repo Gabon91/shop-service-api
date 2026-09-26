@@ -222,17 +222,21 @@ authenticate requests to this server.
 
 ### Optional purchase confirmation emails
 
-Create a [Resend](https://resend.com/) account and verify a sender domain.
-Configure both `RESEND_API_KEY` and `ORDER_EMAIL_FROM` (for example,
-`orders@your-verified-domain.example`) in **Render > Web Service > Environment**,
-then redeploy. Use the same variables in your Git-ignored `.env` for local
-development. Do not put the provider key in source or frontend code.
+Enable 2-step verification on your Google account and create a
+[Google app password](https://support.google.com/mail/answer/185833).
+Set `GMAIL_ADDRESS` to that account's email and `GMAIL_APP_PASSWORD` to its
+app password (without spaces) in **Render > Web Service > Environment**, then
+redeploy. Remove the old `RESEND_API_KEY` and `ORDER_EMAIL_FROM` variables.
+Use the same Gmail variables in your Git-ignored `.env` for local development;
+never put the app password in source or frontend code. Gmail SMTP uses
+`smtp.gmail.com:587` with STARTTLS and sends from the authenticated account.
 
 After an order commits, the API sends a plain-text confirmation containing
 its order ID and total before returning the response. No email is sent for a
 rejected checkout. With both variables unset, emails are disabled and
 purchasing works as before; setting only one prevents the app from starting.
-Email delivery adds up to 10 seconds to the checkout response. A provider
+SMTP delivery delays the checkout response and can exceed the 10-second
+connection timeout. A provider
 failure is logged without leaking credentials; the already-placed order still
 returns successfully, but no automatic retry is attempted. Use a database
 outbox and worker if guaranteed delivery is needed.

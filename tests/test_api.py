@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-import httpx
 import pytest
+import smtplib
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -317,14 +317,16 @@ def test_order_email_is_sent_before_checkout_response_and_only_after_success(mon
 
     monkeypatch.setattr("app.factory.send_order_confirmation", send_now)
     client, service = build_client(Settings(
-        resend_api_key="test-api-key",
-        order_email_from="orders@example.com",
+        gmail_address="orders@gmail.com",
+        gmail_app_password="test-app-password",
     ))
     created = client.post("/api/orders", json=order_payload())
     assert created.status_code == 201
     assert len(calls) == 1
     assert str(calls[0][0].id) == created.json()["id"]
-    assert calls[0][1] == {"api_key": "test-api-key", "sender": "orders@example.com"}
+    assert calls[0][1] == {
+        "gmail_address": "orders@gmail.com", "app_password": "test-app-password"
+    }
 
     invalid = client.post("/api/orders", json={**order_payload(), "items": []})
     missing = order_payload()
@@ -347,13 +349,13 @@ def test_order_email_is_disabled_without_provider_configuration(monkeypatch):
 
 
 def test_provider_failure_does_not_make_saved_order_look_failed(monkeypatch, caplog):
-    def fail_send(url, **kwargs):
-        raise httpx.ReadTimeout("private provider error")
+    def fail_send(*args, **kwargs):
+        raise smtplib.SMTPAuthenticationError(535, b"private provider error")
 
-    monkeypatch.setattr("app.email.httpx.post", fail_send)
+    monkeypatch.setattr("app.email.smtplib.SMTP", fail_send)
     client, _ = build_client(Settings(
-        resend_api_key="test-api-key",
-        order_email_from="orders@example.com",
+        gmail_address="orders@gmail.com",
+        gmail_app_password="test-app-password",
     ))
     response = client.post("/api/orders", json=order_payload())
     assert response.status_code == 201
